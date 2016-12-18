@@ -1,0 +1,120 @@
+#!/bin/bash
+
+###################################################################################################
+# file_ver: 1.0.0
+# 清理log文件或目录
+#
+# Copyright 2016
+#
+# Input variables: path
+# Output variables:
+#
+# Usage: path指定log文件或目录。days指定多少天以前的, 格式为1 size指定多大以上的, 格式为1K 1k 1M 1m 1G 1g 
+#
+###################################################################################################
+
+# error 1 缺少参数
+# error 2 指定目录或文件未找到
+# error 3 指定目录或文件中不包含log或logs目录或者不是log文件
+# error 4 参数格式错误
+
+# 执行错误时的帮助输出函数
+function _printHelp() {
+    printf "\nUsage:\n"
+    printf "\t\tlogPath\t指定要清理的文件或目录\n"
+    printf "\t\t\t\t只能是包含log或logs或以.log结尾的文件或目录\n"
+    printf "\t\t\t\t当指定目录时,清理该目录下满足条件的文件,当指定文件时,清理满足条件的文件\n"
+    printf "\t\tsize\t指定清理多大以上的文件或目录, 整数, 默认 0K\n"
+    printf "\t\t\t\t格式为 大小+单位 如 1k 2K 3m 4M 5g 6G\n"
+    printf "\t\tdays\t指定清理多少久以前的, 默认 0, 单位: 天,  如 5 则清理5天以前的\n"
+    return 0
+}
+
+# 主函数
+function main() {
+    local realPath="$1"
+    local size=$2
+    local days=$3
+    
+    # 检测必选参数是否存在
+    if [ -z "${realPath}" ];then
+        printf "[ ERROR 1 ] 缺少参数: logPath\n"
+        _printHelp
+    	exit 1
+    fi
+    
+    # 可选参数size提取
+    if [ -z "${size}" ];then
+        local size=0k
+    else
+        echo $size | grep -E "0|[1-9][0-9]*[kKmMgG]" >> /dev/null
+        if [ $? -ne 0 ];then
+            printf "[ ERROR 4 ] 参数格式错误: size=${size}\n"
+            _printHelp
+            exit 5
+        fi
+    fi
+    local size=$(echo $size|tr K k)  # K -> k
+    local size=$(echo $size|tr mg MG)  # mg -> MG 使之符合find参数格式
+    
+    # 可选参数days提取
+    if [ -z "${days}" ];then
+        local days=0
+    else
+        echo ${days} | grep -E "0|[1-9][0-9]*" >> /dev/null
+        if [ $? -ne 0 ];then
+            printf "[ ERROR 4 ] 参数格式错误: days=${days}\n"
+            _printHelp
+            exit 5
+        fi
+    fi
+
+    # 检测路径是否存在
+    if [[ ! -d ${realPath} && ! -f "${realPath}" ]];then
+        printf "[ ERROR 2 ] 指定目录或文件不存在: ${realPath}\n"
+        _printHelp
+        exit 2
+    fi
+    
+    # 检测目录中是否包含log目录或是否为log文件
+    ls "${realPath}" | grep -E "*\/logs?\/*|\.log$" >> /dev/null
+    if [ $? -ne 0 ];then
+        printf "[ ERROR 3 ] 指定目录或文件中未包含log或logs目录或者不是log文件\n"
+        _printHelp
+        exit 3
+    fi
+
+    # 处理days在find时的参数
+    if [ $days -eq 0 ];then
+        local argTime=""
+    else
+        local argTime="-mtime +$days"
+    fi
+
+    # 按要求查询符合条件的文件
+    if [ -d $realPath ];then
+        local files=$(find $realPath $argTime -size +$size)
+    else
+        local files=$(find $(dirname $realPath) $argTime -size +$size| grep -E $(basename $realPath))
+    fi
+    if [ -z "$files" ];then
+        printf "[ Waring ] 未找到符合条件的文件可以清理\n"
+        exit 0
+    fi
+
+    # 删除文件并测试是否删除成功
+    for file in ${files};do
+        rm -fr $file  # 万一删除失败 我是说万一 此处不屏蔽错误信息 以提供给用户看
+        if [ $? -ne 0 ];then
+            printf "[ Warning ] 删除失败: ${file}\n"
+        fi
+        printf "[ Success 0 ] 删除成功: ${file}\n"
+    done
+    exit 0
+}
+
+########## main begin ##########
+main "${logPath}" "${size}" "${days}"
+#main $*
+########## main end #############
+
